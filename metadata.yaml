@@ -1,5 +1,5 @@
 name: astrbot_qq_to_local
-desc: 把 QQ 群消息实时归档为本地 Markdown，并可选转发到 Telegram 或 Discord
+desc: 基于anka-afk / astrbot_sowing_discord二次开发，将QQ群聊消息自动归档成本地markdown文件，并且可选转发到其它qq群或者其他平台
 help: 支持本地 Markdown 归档，并可按需转发到 Telegram、Discord
 version: 1.1.6
 author: guiguisocute

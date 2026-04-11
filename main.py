@@ -20,7 +20,7 @@ from .storage.local_cache import LocalCache
 from .storage.markdown_archive import MarkdownArchive
 
 
-@register("astrbot_qq_to_telegram", "guiguisocute", "QQ 本地归档与多平台转发插件", "1.1.6")
+@register("astrbot_qq_to_telegram", "guiguisocute", "QQ 本地归档与多平台转发插件", "1.2.0")
 class SowingDiscord(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -70,20 +70,35 @@ class SowingDiscord(Star):
         )
 
         self.enable_telegram_forward = bool(config.get("enable_telegram_forward", True))
-        self.enable_markdown_archive = bool(config.get("enable_markdown_archive", True))
-        self.archive_root = str(
-            config.get("archive_root", "/AstrBot/data/qq2tg_archive")
+        # QQ->QQ 转发配置
+        self.enable_qq_forward = bool(config.get("enable_qq_forward", False))
+        self.qq_target_groups = self._normalize_int_list(
+            config.get("qq_target_groups")
         )
-        self.archive_save_assets = bool(config.get("archive_save_assets", True))
-        self.archive_asset_max_mb = int(config.get("archive_asset_max_mb", 20))
-        self.markdown_archive = (
-            MarkdownArchive(
-                root_dir=self.archive_root,
-                save_assets=self.archive_save_assets,
-                asset_max_mb=self.archive_asset_max_mb,
+        # 运行时从首条入站消息推断出 QQ 平台前缀（如 aiocqhttp / napcat 等）
+        self._qq_platform_prefix: str | None = None
+
+        # 归档配置（强制启用，无开关）
+        _archive_root_raw = config.get("archive_root", "/AstrBot/data/qq2tg_archive")
+        _archive_root_str = str(_archive_root_raw).strip() if _archive_root_raw else ""
+        if not _archive_root_str:
+            _archive_root_str = "/AstrBot/data/qq2tg_archive"
+            logger.warning(
+                f"[QQ2TG][ID:{self.instance_id}] archive_root 为空，已使用默认值: {_archive_root_str}"
             )
-            if self.enable_markdown_archive
-            else None
+        self.archive_root = _archive_root_str
+        self.archive_save_assets = bool(config.get("archive_save_assets", True))
+        _asset_max_mb_raw = int(config.get("archive_asset_max_mb", 20))
+        if _asset_max_mb_raw < 1:
+            logger.warning(
+                f"[QQ2TG][ID:{self.instance_id}] archive_asset_max_mb={_asset_max_mb_raw} 无效（必须>=1），已重置为 20"
+            )
+            _asset_max_mb_raw = 20
+        self.archive_asset_max_mb = _asset_max_mb_raw
+        self.markdown_archive = MarkdownArchive(
+            root_dir=self.archive_root,
+            save_assets=self.archive_save_assets,
+            asset_max_mb=self.archive_asset_max_mb,
         )
 
         self.local_cache = LocalCache(
@@ -101,12 +116,11 @@ class SowingDiscord(Star):
             f"[QQ2TG][ID:{self.instance_id}] Telegram 目标: {self.telegram_target_unified_origins}"
         )
         logger.info(
-            f"[QQ2TG][ID:{self.instance_id}] 输出模式: telegram={self.enable_telegram_forward}, markdown={self.enable_markdown_archive}"
+            f"[QQ2TG][ID:{self.instance_id}] 输出模式: telegram={self.enable_telegram_forward}, discord={self.enable_discord_forward}, qq={self.enable_qq_forward}, markdown=强制开启"
         )
-        if self.enable_markdown_archive:
-            logger.info(
-                f"[QQ2TG][ID:{self.instance_id}] Markdown 归档目录: {self.archive_root}"
-            )
+        logger.info(
+            f"[QQ2TG][ID:{self.instance_id}] Markdown 归档目录: {self.archive_root}"
+        )
 
     @staticmethod
     def _normalize_int_list(raw):
@@ -1086,13 +1100,16 @@ class SowingDiscord(Star):
 
     @filter.command("qq2tg_show_archive")
     async def qq2tg_show_archive(self, event: AstrMessageEvent):
-        archive_status = "开启" if self.enable_markdown_archive else "关闭"
         tg_status = "开启" if self.enable_telegram_forward else "关闭"
+        dc_status = "开启" if self.enable_discord_forward else "关闭"
+        qq_status = "开启" if self.enable_qq_forward else "关闭"
         target_count = len(self.telegram_target_unified_origins)
         yield event.plain_result(
             "当前输出通道状态:\n"
             f"- Telegram: {tg_status} (目标数: {target_count})\n"
-            f"- Markdown归档: {archive_status}\n"
+            f"- Discord: {dc_status} (目标数: {len(self.discord_target_unified_origins)})\n"
+            f"- QQ: {qq_status} (目标群数: {len(self.qq_target_groups)})\n"
+            f"- Markdown归档: 强制开启\n"
             f"- 归档目录: {self.archive_root}\n"
             f"- 附件保存: {'开启' if self.archive_save_assets else '关闭'}\n"
             f"- 抑制前缀: {self.qq_block_prefixes or '未配置(已关闭)'}"
@@ -1137,6 +1154,16 @@ class SowingDiscord(Star):
 
     @filter.platform_adapter_type(PlatformAdapterType.AIOCQHTTP)
     async def handle_message(self, event: AstrMessageEvent):
+        # 首次收到消息时，从 unified_msg_origin 推断 QQ 平台前缀
+        if self._qq_platform_prefix is None:
+            umo = getattr(event, "unified_msg_origin", "") or ""
+            prefix = umo.split(":")[0] if umo else ""
+            if prefix:
+                self._qq_platform_prefix = prefix
+                logger.info(
+                    f"[QQ2TG][ID:{self.instance_id}] 检测到 QQ 平台前缀: {prefix}"
+                )
+
         group_id = event.message_obj.group_id
         msg_id = event.message_obj.message_id
         is_source = self._is_source_group(group_id)
@@ -1235,11 +1262,10 @@ class SowingDiscord(Star):
 
                         if (
                             not self.enable_telegram_forward
-                            and not self.enable_markdown_archive
+                            and not self.enable_discord_forward
+                            and not self.enable_qq_forward
                         ):
-                            logger.warning("[QQ2TG] 所有输出通道均已关闭，跳过消息。")
-                            await self.local_cache.remove_cache(msg_id)
-                            continue
+                            logger.warning("[QQ2TG] 所有转发通道均已关闭，仅执行归档。")
 
                         if (
                             self.enable_telegram_forward
@@ -1301,15 +1327,14 @@ class SowingDiscord(Star):
 
                         archive_key = f"{origin_group_id_text}:{msg_id}"
                         archive_skip = False
-                        archive_ok = bool(self.enable_markdown_archive)
+                        archive_ok = True
                         archive_written_count = 0
                         archive_target_file = ""
-                        if self.enable_markdown_archive and self.markdown_archive:
-                            archive_skip = await self.markdown_archive.has_processed(
-                                archive_key
-                            )
-                            if archive_skip:
-                                logger.info(f"[QQ2TG][Archive] 去重跳过: {archive_key}")
+                        archive_skip = await self.markdown_archive.has_processed(
+                            archive_key
+                        )
+                        if archive_skip:
+                            logger.info(f"[QQ2TG][Archive] 去重跳过: {archive_key}")
 
                         if ignore_forward:
                             logger.info(
@@ -1338,6 +1363,12 @@ class SowingDiscord(Star):
                             # 3. 如果 DC 开关打开了，把 DC 的频道 ID 塞进去
                             if getattr(self, "enable_discord_forward", False):
                                 all_targets.extend(self.discord_target_unified_origins)
+                            # 4. 如果 QQ 转发开关打开了，把 QQ 目标群 ID 塞进去
+                            if self.enable_qq_forward and self._qq_platform_prefix:
+                                for _gid in self.qq_target_groups:
+                                    all_targets.append(
+                                        f"{self._qq_platform_prefix}:GroupMessage:{_gid}"
+                                    )
 
                             # --- 开始发送逻辑 ---
                             # 2. 如果目标池不为空，且这条消息允许被转发
@@ -1378,11 +1409,7 @@ class SowingDiscord(Star):
                                     except Exception:
                                         pass
 
-                            if (
-                                self.enable_markdown_archive
-                                and self.markdown_archive
-                                and not archive_skip
-                            ):
+                            if not archive_skip:
                                 try:
                                     block = await self._build_markdown_block(
                                         msg_content=entry["msg_content"],
@@ -1409,12 +1436,7 @@ class SowingDiscord(Star):
                                         f"[QQ2TG][Archive] 写入失败: msg={msg_id}, error={exc}"
                                     )
 
-                        if (
-                            self.enable_markdown_archive
-                            and self.markdown_archive
-                            and not archive_skip
-                            and archive_ok
-                        ):
+                        if not archive_skip and archive_ok:
                             await self.markdown_archive.mark_processed(
                                 archive_key,
                                 {
@@ -1428,7 +1450,7 @@ class SowingDiscord(Star):
                             )
 
                         logger.info(
-                            f"[QQ2TG] 消息处理完成: msg={msg_id}, telegram={self.enable_telegram_forward}, markdown={self.enable_markdown_archive}"
+                            f"[QQ2TG] 消息处理完成: msg={msg_id}, telegram={self.enable_telegram_forward}, discord={self.enable_discord_forward}, qq={self.enable_qq_forward}"
                         )
 
                         await self.local_cache.remove_cache(msg_id)

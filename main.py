@@ -46,9 +46,6 @@ class SowingDiscord(Star):
         self.banshi_group_list = self._normalize_int_list(
             config.get("banshi_group_list")
         )
-        self.banshi_target_list = self._normalize_int_list(
-            config.get("banshi_target_list")
-        )
         self.qq_block_prefixes = self._normalize_prefix_list(
             config.get("qq_block_prefixes", ["!!"])
         )

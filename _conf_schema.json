@@ -16,13 +16,8 @@
   },
   "archive_asset_max_mb": {
     "type": "int",
-    "default": 20,
+    "default": 25,
     "description": "归档附件下载大小上限(MB)，必须 >= 1，超限则仅记录链接"
-  },
-  "banshi_target_list": {
-    "type": "list",
-    "default": [],
-    "description": "(兼容旧版) QQ 目标群列表。QQ->Telegram 转发不会使用此项"
   },
   "qq_block_prefixes": {
     "type": "list",
@@ -39,11 +34,11 @@
   "qq_target_groups": {
     "type": "list",
     "default": [],
-    "description": "QQ 目标群号列表，直接填 QQ 群号即可，例如 [123456789, 987654321]"
+    "description": "QQ 目标群号列表"
   },
   "enable_discord_forward": {
     "type": "bool",
-    "default": true,
+    "default": false,
     "description": "是否启用 Discord 转发通道"
   },
   "discord_target_unified_origins": {
@@ -53,7 +48,7 @@
   },
   "enable_telegram_forward": {
     "type": "bool",
-    "default": true,
+    "default": false,
     "description": "是否启用 Telegram 转发通道"
   },
   "telegram_target_unified_origins": {
@@ -68,7 +63,7 @@
   },
   "telegram_upload_max_mb": {
     "type": "int",
-    "default": 10,
+    "default": 25,
     "description": "文件上传大小上限(MB)，超限则回退为链接"
   },
   "block_source_messages": {

@@ -1258,7 +1258,7 @@ class SowingDiscord(Star):
         self._forward_task = asyncio.current_task()
 
         try:
-            cleaned = await self.local_cache._cleanup_expired_cache()
+            cleaned = await self.local_cache.cleanup_expired_cache()
             if cleaned:
                 logger.info(
                     f"[QQ2TG][ID:{self.instance_id}] 清理过期缓存: {cleaned} 条"

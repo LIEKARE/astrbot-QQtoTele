@@ -9,7 +9,7 @@ from .evaluation.emoji import type1_ids, type2_ids
 class MessageHandler:
     def __init__(self, event: AstrMessageEvent):
         self.event = event
-        pass
+
     async def fetch_emoji_like(self, message_id: int, emoji_ids: dict = None):
         """获取消息的各种贴表情数量, 默认获取所有表情数量
 
@@ -59,5 +59,4 @@ class MessageHandler:
             emoji_count_dict[emoji_id] = emoji_count
 
         return emoji_count_dict
-    
 

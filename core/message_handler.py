@@ -1,5 +1,9 @@
 # 消息处理
-from astrbot.api.event import filter, AstrMessageEvent
+import asyncio
+
+from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent
+
 from .evaluation.emoji import type1_ids, type2_ids
 
 class MessageHandler:
@@ -22,30 +26,38 @@ class MessageHandler:
                 "type1_ids": type1_ids,
                 "type2_ids": type2_ids
             }
-        for id in emoji_ids["type1_ids"]:
-            payloads = {
-                "message_id": message_id,
-                "emojiId": id,
-                "emojiType": 1
-            }
-            response = await client.api.call_action("fetch_emoji_like", **payloads)
-            emojiLikesList = response.get("emojiLikesList")
-            if emojiLikesList:
-                emoji_count_dict[id] = len(emojiLikesList)
-            else:
-                emoji_count_dict[id] = 0
-        for id in emoji_ids["type2_ids"]:
-            payloads = {
-                "message_id": message_id,
-                "emojiId": id,
-                "emojiType": 2
-            }
-            response = await client.api.call_action("fetch_emoji_like", **payloads)
-            emojiLikesList = response.get("emojiLikesList")
-            if emojiLikesList:
-                emoji_count_dict[id] = len(emojiLikesList)
-            else:
-                emoji_count_dict[id] = 0
+
+        semaphore = asyncio.Semaphore(20)
+
+        async def _fetch_one(emoji_id: int, emoji_type: int):
+            async with semaphore:
+                payloads = {
+                    "message_id": message_id,
+                    "emojiId": emoji_id,
+                    "emojiType": emoji_type,
+                }
+                response = await client.api.call_action("fetch_emoji_like", **payloads)
+                emoji_likes_list = (
+                    response.get("emojiLikesList")
+                    if isinstance(response, dict)
+                    else None
+                )
+                return emoji_id, len(emoji_likes_list) if emoji_likes_list else 0
+
+        tasks = [
+            _fetch_one(emoji_id, 1) for emoji_id in emoji_ids.get("type1_ids", [])
+        ] + [
+            _fetch_one(emoji_id, 2) for emoji_id in emoji_ids.get("type2_ids", [])
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(f"[MessageHandler] fetch_emoji_like 调用失败: {result}")
+                continue
+            emoji_id, emoji_count = result
+            emoji_count_dict[emoji_id] = emoji_count
+
         return emoji_count_dict
     
 

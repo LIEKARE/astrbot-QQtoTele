@@ -1,16 +1,25 @@
 # local_cache.py
 
-from ..config import TEMP_DIR, WAITING_TIME
 import os
 import json
 import time
 import asyncio
 from astrbot.api import logger
+from astrbot.api.star import StarTools
+
+from ..config import WAITING_TIME
 
 
 class LocalCache:
-    def __init__(self, max_age_seconds: int = 3600, waiting_time: int | None = None):
-        self.cache_file = os.path.join(TEMP_DIR, "local_cache.json")
+    def __init__(
+        self,
+        max_age_seconds: int = 3600,
+        waiting_time: int | None = None,
+        cache_dir=None,
+    ):
+        if cache_dir is None:
+            cache_dir = StarTools.get_data_dir() / "sowing_discord_cache"
+        self.cache_file = os.path.join(os.fspath(cache_dir), "local_cache.json")
         self.WAITING_TIME = waiting_time if waiting_time is not None else WAITING_TIME
         self.MAX_CACHE_AGE_SECONDS = max_age_seconds
 
@@ -20,8 +29,23 @@ class LocalCache:
         os.makedirs(cache_dir, exist_ok=True)
 
         if not os.path.exists(self.cache_file):
-            with open(self.cache_file, "w") as f:
+            with open(self.cache_file, "w", encoding="utf-8") as f:
                 json.dump({}, f)
+
+    def _load_cache(self) -> dict:
+        try:
+            with open(self.cache_file, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            return cache if isinstance(cache, dict) else {}
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError as exc:
+            logger.warning(f"[LocalCache] 缓存文件已损坏，将按空缓存处理: {exc}")
+            return {}
+
+    def _save_cache(self, cache: dict):
+        with open(self.cache_file, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
 
     @staticmethod
     def _parse_cache_entry(entry):
@@ -44,12 +68,8 @@ class LocalCache:
         cleaned_count = 0
 
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-
-            except (FileNotFoundError, json.JSONDecodeError):
-                logger.error("[LocalCache][CLEANUP] 错误：文件不存在或内容格式错误。")
+            cache = self._load_cache()
+            if not cache:
                 return 0
 
             keys_to_keep = {}
@@ -68,8 +88,7 @@ class LocalCache:
                     }
 
             if cleaned_count > 0:
-                with open(self.cache_file, "w") as f:
-                    json.dump(keys_to_keep, f)
+                self._save_cache(keys_to_keep)
 
             return cleaned_count
 
@@ -80,11 +99,7 @@ class LocalCache:
         str_message_id = str(message_id)
 
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                cache = {}
+            cache = self._load_cache()
 
             cache[str_message_id] = {
                 "ts": time.time(),
@@ -92,8 +107,7 @@ class LocalCache:
                 "ignore_forward": bool(ignore_forward),
             }
 
-            with open(self.cache_file, "w") as f:
-                json.dump(cache, f)
+            self._save_cache(cache)
 
     async def get_waiting_messages(self) -> list:
         """获取已经等待足够时间的消息列表"""
@@ -102,11 +116,8 @@ class LocalCache:
         current_time = time.time()
 
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-
-            except (FileNotFoundError, json.JSONDecodeError):
+            cache = self._load_cache()
+            if not cache:
                 return []
 
         for message_id_str, entry in cache.items():
@@ -119,14 +130,9 @@ class LocalCache:
     async def get_earliest_timestamp(self) -> float | None:
         """获取缓存中最早的时间戳，用于计算等待时间。如果没有消息返回 None。"""
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
+            cache = self._load_cache()
+            if not cache:
                 return None
-
-        if not cache:
-            return None
 
         timestamps = []
         for entry in cache.values():
@@ -139,10 +145,8 @@ class LocalCache:
         str_message_id = str(message_id)
 
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
+            cache = self._load_cache()
+            if not cache:
                 return None
 
         if str_message_id not in cache:
@@ -155,10 +159,8 @@ class LocalCache:
         str_message_id = str(message_id)
 
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
+            cache = self._load_cache()
+            if not cache:
                 return False
 
         if str_message_id not in cache:
@@ -170,30 +172,21 @@ class LocalCache:
     async def has_pending_messages(self) -> bool:
         """检查缓存中是否还有消息（无论是否成熟）"""
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-                return bool(cache)
-            except (FileNotFoundError, json.JSONDecodeError):
-                return False
+            return bool(self._load_cache())
 
     async def remove_cache(self, message_id: int):
         """转发成功或失败后，手动删除指定的 message_id"""
         str_message_id = str(message_id)
 
         async with self._file_lock:
-            try:
-                with open(self.cache_file, "r") as f:
-                    cache = json.load(f)
-
-            except (FileNotFoundError, json.JSONDecodeError):
+            cache = self._load_cache()
+            if not cache:
                 return False
 
             if str_message_id in cache:
                 del cache[str_message_id]
 
-                with open(self.cache_file, "w") as f:
-                    json.dump(cache, f)
+                self._save_cache(cache)
 
                 return True
             return False

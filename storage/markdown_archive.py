@@ -87,6 +87,13 @@ class MarkdownArchive:
         target_name = f"{uuid.uuid4().hex[:8]}_{safe_name}"
         target_path = os.path.join(asset_dir, target_name)
 
+        def _cleanup_target():
+            try:
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+            except OSError:
+                pass
+
         def _download() -> bool:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with (
@@ -107,11 +114,13 @@ class MarkdownArchive:
         try:
             ok = await asyncio.to_thread(_download)
             if not ok:
+                _cleanup_target()
                 return None
             rel = f"{category}/{target_name}".replace("\\", "/")
             logger.info(f"[QQ2TG][Archive] 附件已保存: {day_str}/{rel}")
             return rel
         except ValueError as exc:
+            _cleanup_target()
             if str(exc) == "asset_too_large":
                 logger.info(
                     f"[QQ2TG][Archive] 附件超过上限({self.asset_max_bytes // (1024 * 1024)}MB): {preferred_name}"
@@ -119,11 +128,7 @@ class MarkdownArchive:
             return None
         except Exception as exc:
             logger.warning(f"[QQ2TG][Archive] 下载附件失败: {exc}")
-            try:
-                if os.path.exists(target_path):
-                    os.remove(target_path)
-            except Exception:
-                pass
+            _cleanup_target()
             return None
 
     @staticmethod
@@ -135,6 +140,6 @@ class MarkdownArchive:
             base = os.path.basename(parsed.path)
             if base:
                 return base
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[QQ2TG][Archive] guess_name_from_url 失败: url={url}, error={exc}")
         return fallback

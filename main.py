@@ -2,6 +2,7 @@ import asyncio
 import html
 import json
 import os
+from pathlib import Path
 import re
 import tempfile
 import time
@@ -13,7 +14,7 @@ from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, MessageEventResult, filter
 import astrbot.api.message_components as Comp
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.core.star.filter.platform_adapter_type import PlatformAdapterType
 
 from .storage.local_cache import LocalCache
@@ -76,14 +77,34 @@ class SowingDiscord(Star):
         self._qq_platform_prefix: str | None = None
 
         # 归档配置（强制启用，无开关）
-        _archive_root_raw = config.get("archive_root", "/AstrBot/data/qq2tg_archive")
-        _archive_root_str = str(_archive_root_raw).strip() if _archive_root_raw else ""
-        if not _archive_root_str:
-            _archive_root_str = "/AstrBot/data/qq2tg_archive"
+        data_dir = StarTools.get_data_dir()
+        data_dir_resolved = data_dir.resolve()
+        archive_root_path = data_dir / "qq2tg_archive"
+        _archive_root_raw = config.get("archive_root")
+        _archive_root_str = (
+            str(_archive_root_raw).strip() if _archive_root_raw is not None else ""
+        )
+        if _archive_root_str:
+            archive_root_candidate = Path(_archive_root_str)
+            if archive_root_candidate.is_absolute():
+                logger.warning(
+                    f"[QQ2TG][ID:{self.instance_id}] archive_root 必须位于插件数据目录下，已改用默认值: {archive_root_path}"
+                )
+            else:
+                candidate_path = (data_dir / archive_root_candidate).resolve()
+                try:
+                    candidate_path.relative_to(data_dir_resolved)
+                except ValueError:
+                    logger.warning(
+                        f"[QQ2TG][ID:{self.instance_id}] archive_root 不能跳出插件数据目录，已改用默认值: {archive_root_path}"
+                    )
+                else:
+                    archive_root_path = candidate_path
+        elif _archive_root_raw is not None:
             logger.warning(
-                f"[QQ2TG][ID:{self.instance_id}] archive_root 为空，已使用默认值: {_archive_root_str}"
+                f"[QQ2TG][ID:{self.instance_id}] archive_root 为空，已使用默认值: {archive_root_path}"
             )
-        self.archive_root = _archive_root_str
+        self.archive_root = str(archive_root_path)
         self.archive_save_assets = bool(config.get("archive_save_assets", True))
         _asset_max_mb_raw = int(config.get("archive_asset_max_mb", 20))
         if _asset_max_mb_raw < 1:
@@ -101,6 +122,7 @@ class SowingDiscord(Star):
         self.local_cache = LocalCache(
             max_age_seconds=self.banshi_cache_seconds,
             waiting_time=self.banshi_waiting_time,
+            cache_dir=data_dir / "sowing_discord_cache",
         )
 
         self.forward_lock = asyncio.Lock()
@@ -476,6 +498,13 @@ class SowingDiscord(Star):
         os.makedirs(tmp_dir, exist_ok=True)
         tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4().hex}_{safe_name}")
 
+        def _cleanup_tmp_file():
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+
         def _download() -> str | None:
             req = urllib.request.Request(
                 file_url,
@@ -496,20 +525,32 @@ class SowingDiscord(Star):
                     f.write(chunk)
 
             if os.path.getsize(tmp_path) <= 0:
+                _cleanup_tmp_file()
                 return None
             return tmp_path
 
         try:
             return await asyncio.to_thread(_download)
         except ValueError as exc:
+            _cleanup_tmp_file()
             if str(exc) == "file_too_large":
                 logger.info(
                     f"[QQ2TG] 文件超过上限({self.telegram_upload_max_mb}MB)，回退为链接: {safe_name}"
                 )
             return None
         except Exception as exc:
+            _cleanup_tmp_file()
             logger.warning(f"[QQ2TG] 下载文件失败，回退为链接: {exc}")
             return None
+
+    @staticmethod
+    def _cleanup_temp_files(temp_files):
+        for temp_path in temp_files:
+            try:
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except OSError:
+                pass
 
     async def _resolve_file_url(self, client, source_group_id, file_data: dict) -> str:
         direct_url = file_data.get("url") or file_data.get("file")
@@ -840,81 +881,85 @@ class SowingDiscord(Star):
                 }
             ]
 
-        for seg in msg_content:
-            if not isinstance(seg, dict):
-                text_parts.append(str(seg))
-                continue
+        try:
+            for seg in msg_content:
+                if not isinstance(seg, dict):
+                    text_parts.append(str(seg))
+                    continue
 
-            seg_type = seg.get("type")
-            data = seg.get("data", {})
+                seg_type = seg.get("type")
+                data = seg.get("data", {})
 
-            if seg_type == "text":
-                txt = data.get("text", "")
-                if txt:
-                    text_parts.append(txt)
-                continue
+                if seg_type == "text":
+                    txt = data.get("text", "")
+                    if txt:
+                        text_parts.append(txt)
+                    continue
 
-            if seg_type == "at":
-                text_parts.append(f"@{data.get('qq', 'unknown')}")
-                continue
+                if seg_type == "at":
+                    text_parts.append(f"@{data.get('qq', 'unknown')}")
+                    continue
 
-            if seg_type == "reply":
-                text_parts.append("[回复]")
-                continue
+                if seg_type == "reply":
+                    text_parts.append("[回复]")
+                    continue
 
-            if seg_type == "image":
-                image_url = data.get("url") or data.get("file")
-                if isinstance(image_url, str) and image_url.startswith(
-                    ("http://", "https://")
-                ):
-                    chains.append(Comp.Image.fromURL(image_url))
-                else:
-                    text_parts.append("[图片]")
-                continue
+                if seg_type == "image":
+                    image_url = data.get("url") or data.get("file")
+                    if isinstance(image_url, str) and image_url.startswith(
+                        ("http://", "https://")
+                    ):
+                        chains.append(Comp.Image.fromURL(image_url))
+                    else:
+                        text_parts.append("[图片]")
+                    continue
 
-            if seg_type == "file":
-                file_url = await self._resolve_file_url(
-                    client=client,
-                    source_group_id=source_group_id_raw,
-                    file_data=data,
-                )
-                file_name = self._pick_file_name(data)
-                if isinstance(file_url, str) and file_url.startswith(
-                    ("http://", "https://")
-                ):
-                    fixed_url = self._ensure_fname_in_url(file_url, file_name)
-                    if self.telegram_upload_files:
-                        local_path = await self._download_file_to_temp(
-                            fixed_url, file_name
-                        )
-                        if local_path:
-                            temp_files.append(local_path)
-                            chains.append(Comp.File(file=local_path, name=file_name))
+                if seg_type == "file":
+                    file_url = await self._resolve_file_url(
+                        client=client,
+                        source_group_id=source_group_id_raw,
+                        file_data=data,
+                    )
+                    file_name = self._pick_file_name(data)
+                    if isinstance(file_url, str) and file_url.startswith(
+                        ("http://", "https://")
+                    ):
+                        fixed_url = self._ensure_fname_in_url(file_url, file_name)
+                        if self.telegram_upload_files:
+                            local_path = await self._download_file_to_temp(
+                                fixed_url, file_name
+                            )
+                            if local_path:
+                                temp_files.append(local_path)
+                                chains.append(Comp.File(file=local_path, name=file_name))
+                            else:
+                                text_parts.append(f"[文件:{file_name}] {fixed_url}")
                         else:
                             text_parts.append(f"[文件:{file_name}] {fixed_url}")
                     else:
-                        text_parts.append(f"[文件:{file_name}] {fixed_url}")
-                else:
-                    text_parts.append(f"[文件:{file_name}]")
-                continue
+                        text_parts.append(f"[文件:{file_name}]")
+                    continue
 
-            if seg_type == "video":
-                text_parts.append("[视频]")
-                continue
+                if seg_type == "video":
+                    text_parts.append("[视频]")
+                    continue
 
-            if seg_type == "record":
-                text_parts.append("[语音]")
-                continue
+                if seg_type == "record":
+                    text_parts.append("[语音]")
+                    continue
 
-            if seg_type == "face":
-                text_parts.append("[表情]")
-                continue
+                if seg_type == "face":
+                    text_parts.append("[表情]")
+                    continue
 
-            if seg_type == "json":
-                text_parts.append(self._parse_json_segment_summary(data))
-                continue
+                if seg_type == "json":
+                    text_parts.append(self._parse_json_segment_summary(data))
+                    continue
 
-            text_parts.append(f"[{seg_type or 'unknown'}]")
+                text_parts.append(f"[{seg_type or 'unknown'}]")
+        except Exception:
+            self._cleanup_temp_files(temp_files)
+            raise
 
         body = " ".join([x for x in text_parts if x]).strip()
         if body:
@@ -1369,42 +1414,38 @@ class SowingDiscord(Star):
 
                             # --- 开始发送逻辑 ---
                             # 2. 如果目标池不为空，且这条消息允许被转发
-                            if all_targets and not ignore_forward:
-                                chains, temp_files = await self._build_forward_chain(
-                                    msg_content=entry["msg_content"],
-                                    source_group_name=source_group_name,
-                                    source_group_id=origin_group_id_text,
-                                    source_group_id_raw=origin_group_id,
-                                    sender_name=entry["sender_name"],
-                                    sender_id=entry["sender_id"],
-                                    msg_time_str=entry["msg_time_str"],
-                                    client=client,
-                                )
+                            temp_files = []
+                            try:
+                                if all_targets and not ignore_forward:
+                                    chains, temp_files = await self._build_forward_chain(
+                                        msg_content=entry["msg_content"],
+                                        source_group_name=source_group_name,
+                                        source_group_id=origin_group_id_text,
+                                        source_group_id_raw=origin_group_id,
+                                        sender_name=entry["sender_name"],
+                                        sender_id=entry["sender_id"],
+                                        msg_time_str=entry["msg_time_str"],
+                                        client=client,
+                                    )
 
-                                # 3. 遍历目标池统一发送
-                                for target_umo in all_targets:
-                                    try:
-                                        message_chain = MessageChain()
-                                        message_chain.chain = list(chains)
-                                        await self.context.send_message(
-                                            target_umo, message_chain
-                                        )
-                                        logger.info(
-                                            f"[QQ2Multi] 转发成功: msg={msg_id} -> {target_umo}"
-                                        )
-                                    except Exception as exc:
-                                        logger.error(
-                                            f"[QQ2Multi] 转发失败: msg={msg_id} -> {target_umo}, error={exc}"
-                                        )
-                                    await asyncio.sleep(0.2)
-
-                                # 4. 发送完毕后，清理下载的图片/文件垃圾
-                                for temp_path in temp_files:
-                                    try:
-                                        if temp_path and os.path.exists(temp_path):
-                                            os.remove(temp_path)
-                                    except Exception:
-                                        pass
+                                    # 3. 遍历目标池统一发送
+                                    for target_umo in all_targets:
+                                        try:
+                                            message_chain = MessageChain()
+                                            message_chain.chain = list(chains)
+                                            await self.context.send_message(
+                                                target_umo, message_chain
+                                            )
+                                            logger.info(
+                                                f"[QQ2Multi] 转发成功: msg={msg_id} -> {target_umo}"
+                                            )
+                                        except Exception as exc:
+                                            logger.error(
+                                                f"[QQ2Multi] 转发失败: msg={msg_id} -> {target_umo}, error={exc}"
+                                            )
+                                        await asyncio.sleep(0.2)
+                            finally:
+                                self._cleanup_temp_files(temp_files)
 
                             if not archive_skip:
                                 try:

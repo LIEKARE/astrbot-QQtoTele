@@ -6,8 +6,8 @@
   },
   "archive_root": {
     "type": "string",
-    "default": "/AstrBot/data/qq2tg_archive",
-    "description": "Markdown 归档根目录（容器内路径，不可为空）。Markdown 归档功能强制启用，无需开关"
+    "default": "qq2tg_archive",
+    "description": "Markdown 归档根目录（相对于插件数据目录；不要填写绝对路径）。Markdown 归档功能强制启用，无需开关"
   },
   "archive_save_assets": {
     "type": "bool",

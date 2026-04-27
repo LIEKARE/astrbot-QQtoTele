@@ -7,7 +7,7 @@
   "archive_root": {
     "type": "string",
     "default": "qq2tg_archive",
-    "description": "Markdown 归档根目录（相对于插件数据目录；不要填写绝对路径）。Markdown 归档功能强制启用，无需开关"
+    "description": "Markdown 归档根目录。相对路径会写入插件数据目录下；也支持容器内绝对路径，例如 /workspace/archive。Markdown 归档功能强制启用，无需开关"
   },
   "archive_save_assets": {
     "type": "bool",

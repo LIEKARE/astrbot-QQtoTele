@@ -10,15 +10,15 @@
 
 - 已确认容器可访问并写入宿主机目录。
 - 目标宿主机目录：
-  - `/opt/1panel/apps/openclaw/openclaw/data/workspace/JXNU-PUBLISH`
+  - `/opt/1panel/apps/openclaw/openclaw/data/workspace`
 - AstrBot 容器内挂载点：
-  - `/workspace/JXNU-PUBLISH`
+  - `/workspace`
 - 挂载类型：本机目录（bind mount），权限：读写（rw）。
 - 验证命令与结果：
 
 ```bash
-ls -la /workspace/JXNU-PUBLISH
-touch /workspace/JXNU-PUBLISH/.astrbot_write_test && ls -l /workspace/JXNU-PUBLISH/.astrbot_write_test && rm /workspace/JXNU-PUBLISH/.astrbot_write_test
+ls -la /workspace
+touch /workspace/.astrbot_write_test && ls -l /workspace/.astrbot_write_test && rm /workspace/.astrbot_write_test
 ```
 
 - 写入测试成功（文件显示为 `root:root`），说明容器当前以 root 用户写文件。
@@ -37,7 +37,7 @@ touch /workspace/JXNU-PUBLISH/.astrbot_write_test && ls -l /workspace/JXNU-PUBLI
 
 - 引入输出模式配置：`telegram`（兼容旧逻辑）与 `markdown_archive`（新逻辑）。
 - 新增归档配置建议：
-  - `archive_root`（例：`/workspace/JXNU-PUBLISH/archive`）
+  - `archive_root`（例：`/workspace/archive`）
   - `archive_split`（按天）
   - `archive_save_assets`（是否保存附件）
 - 归档目录建议：

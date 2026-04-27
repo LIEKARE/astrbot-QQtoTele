@@ -86,10 +86,11 @@ class SowingDiscord(Star):
         )
         if _archive_root_str:
             archive_root_candidate = Path(_archive_root_str)
-            if archive_root_candidate.is_absolute():
-                logger.warning(
-                    f"[QQ2TG][ID:{self.instance_id}] archive_root 必须位于插件数据目录下，已改用默认值: {archive_root_path}"
-                )
+            if (
+                archive_root_candidate.is_absolute()
+                or _archive_root_str.startswith("/")
+            ):
+                archive_root_path = archive_root_candidate
             else:
                 candidate_path = (data_dir / archive_root_candidate).resolve()
                 try:

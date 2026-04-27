@@ -26,7 +26,7 @@
 
 ### 归档（强制开启，无开关）
 
-- `archive_root`: Markdown 归档根目录（相对于 AstrBot 插件数据目录，默认 `qq2tg_archive`；不要填写绝对路径）
+- `archive_root`: Markdown 归档根目录。默认 `qq2tg_archive` 会写入 AstrBot 插件数据目录下；容器部署时也可以填绝对路径，例如 `/workspace/archive`
 - `archive_save_assets`: 是否下载并保存归档附件（默认 `true`）
 - `archive_asset_max_mb`: 归档附件下载大小上限 MB，必须 >= 1（默认 `20`）
 
@@ -78,7 +78,7 @@
 
 1. 在 AstrBot 里启用 QQ 适配器。
 2. 把需要监听的 QQ 群号填进 `banshi_group_list`。
-3. 按需设置 `archive_root` 为插件数据目录下的相对路径（归档默认开启）。
+3. 按需设置 `archive_root`。如果要和 EDU-PUBLISH 配合，可以填容器内绝对路径，例如 `/workspace/archive`。
 4. 如需转发到 QQ 目标群，开启 `enable_qq_forward`，并把目标群号填进 `qq_target_groups`。
 5. 如需转发到 Telegram，启用 Telegram 适配器，在目标聊天执行 `/qq2tg_bind_target`，把结果填进 `telegram_target_unified_origins`。
 6. 如需转发到 Discord，启用 Discord 适配器，在目标频道执行 `/qq2dc_bind_target`，把结果填进 `discord_target_unified_origins`。
@@ -89,7 +89,7 @@
 ```json
 {
   "banshi_group_list": ["123456789"],
-  "archive_root": "qq2tg_archive",
+  "archive_root": "/workspace/archive",
   "archive_save_assets": true,
   "archive_asset_max_mb": 20,
   "qq_block_prefixes": ["!!"],

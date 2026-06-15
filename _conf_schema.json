@@ -1,4 +1,77 @@
 {
+  "banshi_group_list": {
+    "type": "list",
+    "default": [],
+    "description": "来源群列表（填 QQ 群号）"
+  },
+  "archive_root": {
+    "type": "string",
+    "default": "qq2tg_archive",
+    "description": "Markdown 归档根目录。相对路径会写入插件数据目录下；也支持容器内绝对路径，例如 /workspace/archive。Markdown 归档功能强制启用，无需开关"
+  },
+  "archive_save_assets": {
+    "type": "bool",
+    "default": true,
+    "description": "归档时是否下载并保存图片/文件附件"
+  },
+  "archive_asset_max_mb": {
+    "type": "int",
+    "default": 25,
+    "description": "归档附件下载大小上限(MB)，必须 >= 1，超限则仅记录链接"
+  },
+  "qq_block_prefixes": {
+    "type": "list",
+    "default": [
+      "!!"
+    ],
+    "description": "QQ 抑制转发前缀列表。命中后该群进入抑制状态，直到出现一条不以这些前缀开头的消息"
+  },
+  "enable_qq_forward": {
+    "type": "bool",
+    "default": false,
+    "description": "是否启用 QQ->QQ 转发通道（将来源群消息同时转发到 QQ 目标群）"
+  },
+  "qq_target_groups": {
+    "type": "list",
+    "default": [],
+    "description": "QQ 目标群号列表"
+  },
+  "enable_discord_forward": {
+    "type": "bool",
+    "default": false,
+    "description": "是否启用 Discord 转发通道"
+  },
+  "discord_target_unified_origins": {
+    "type": "list",
+    "default": [],
+    "description": "Discord 目标会话列表。请在 Discord 目标频道发送 /qq2dc_bind_target 获取 ID 并填入"
+  },
+  "enable_telegram_forward": {
+    "type": "bool",
+    "default": false,
+    "description": "是否启用 Telegram 转发通道"
+  },
+  "telegram_target_unified_origins": {
+    "type": "list",
+    "default": [],
+    "description": "Telegram 目标会话列表。每项形如 telegram:group_message:<chat_id>"
+  },
+  "telegram_upload_files": {
+    "type": "bool",
+    "default": true,
+    "description": "是否下载QQ文件并重新上传到Telegram"
+  },
+  "telegram_upload_max_mb": {
+    "type": "int",
+    "default": 25,
+    "description": "文件上传大小上限(MB)，超限则回退为链接"
+  },
+  "block_source_messages": {
+    "description": "是否屏蔽源群消息",
+    "type": "bool",
+    "hint": "开启后将屏蔽banshi_group_list中的群消息",
+    "default": true
+  },
   "banshi_waiting_time": {
     "type": "int",
     "default": 1,
@@ -33,78 +106,5 @@
     "type": "string",
     "default": "01:00",
     "description": "动态冷却：夜间时段起始时间 (HH:MM)"
-  },
-  "banshi_group_list": {
-    "type": "list",
-    "default": [],
-    "description": "史的来源群列表"
-  },
-  "banshi_target_list": {
-    "type": "list",
-    "default": [],
-    "description": "(兼容旧版) QQ 目标群列表。QQ->Telegram 转发不会使用此项"
-  },
-  "qq_block_prefixes": {
-    "type": "list",
-    "default": [
-      "!!"
-    ],
-    "description": "QQ 抑制转发前缀列表。命中后该群进入抑制状态，直到出现一条不以这些前缀开头的消息"
-  },
-  "enable_discord_forward": {
-    "type": "bool",
-    "default": true,
-    "description": "是否启用 Discord 转发通道"
-  },
-  "discord_target_unified_origins": {
-    "type": "list",
-    "default": [],
-    "description": "Discord 目标会话列表。请在 Discord 目标频道发送 /qq2dc_bind_target 获取 ID 并填入"
-  },
-  "enable_telegram_forward": {
-    "type": "bool",
-    "default": true,
-    "description": "是否启用 Telegram 转发通道"
-  },
-  "telegram_target_unified_origins": {
-    "type": "list",
-    "default": [],
-    "description": "Telegram 目标会话列表。每项形如 telegram:group_message:<chat_id>"
-  },
-  "enable_markdown_archive": {
-    "type": "bool",
-    "default": true,
-    "description": "是否启用 Markdown 本地归档通道"
-  },
-  "archive_root": {
-    "type": "string",
-    "default": "/AstrBot/data/qq2tg_archive",
-    "description": "Markdown 归档根目录（容器内路径）"
-  },
-  "archive_save_assets": {
-    "type": "bool",
-    "default": true,
-    "description": "归档时是否下载并保存图片/文件附件"
-  },
-  "archive_asset_max_mb": {
-    "type": "int",
-    "default": 20,
-    "description": "归档附件下载大小上限(MB)，超限则仅记录链接"
-  },
-  "telegram_upload_files": {
-    "type": "bool",
-    "default": true,
-    "description": "是否下载QQ文件并重新上传到Telegram"
-  },
-  "telegram_upload_max_mb": {
-    "type": "int",
-    "default": 10,
-    "description": "文件上传大小上限(MB)，超限则回退为链接"
-  },
-  "block_source_messages": {
-    "description": "是否屏蔽源群消息",
-    "type": "bool",
-    "hint": "开启后将屏蔽banshi_group_list中的群消息",
-    "default": true
   }
 }

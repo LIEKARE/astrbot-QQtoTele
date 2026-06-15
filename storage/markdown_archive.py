@@ -25,9 +25,24 @@ class MarkdownArchive:
         self._index_file = os.path.join(self._index_dir, "message_ids.json")
 
         os.makedirs(self._index_dir, exist_ok=True)
+        self._processed_index = self._load_index()
         if not os.path.exists(self._index_file):
-            with open(self._index_file, "w", encoding="utf-8") as f:
-                json.dump({}, f, ensure_ascii=False)
+            self._save_index()
+
+    def _load_index(self) -> dict:
+        try:
+            with open(self._index_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except FileNotFoundError:
+            return {}
+        except json.JSONDecodeError as exc:
+            logger.warning(f"[QQ2TG][Archive] 去重索引已损坏，将按空索引处理: {exc}")
+            return {}
+
+    def _save_index(self):
+        with open(self._index_file, "w", encoding="utf-8") as f:
+            json.dump(self._processed_index, f, ensure_ascii=False, indent=2)
 
     @staticmethod
     def _safe_name(name: str, fallback: str) -> str:
@@ -38,24 +53,12 @@ class MarkdownArchive:
 
     async def has_processed(self, message_key: str) -> bool:
         async with self._lock:
-            try:
-                with open(self._index_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                return False
-            return str(message_key) in data
+            return str(message_key) in self._processed_index
 
     async def mark_processed(self, message_key: str, value: dict):
         async with self._lock:
-            try:
-                with open(self._index_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                data = {}
-
-            data[str(message_key)] = value
-            with open(self._index_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            self._processed_index[str(message_key)] = value
+            self._save_index()
 
     async def append_entry(self, day_str: str, content: str) -> str:
         async with self._lock:
@@ -87,6 +90,13 @@ class MarkdownArchive:
         target_name = f"{uuid.uuid4().hex[:8]}_{safe_name}"
         target_path = os.path.join(asset_dir, target_name)
 
+        def _cleanup_target():
+            try:
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+            except OSError:
+                pass
+
         def _download() -> bool:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with (
@@ -107,11 +117,13 @@ class MarkdownArchive:
         try:
             ok = await asyncio.to_thread(_download)
             if not ok:
+                _cleanup_target()
                 return None
             rel = f"{category}/{target_name}".replace("\\", "/")
             logger.info(f"[QQ2TG][Archive] 附件已保存: {day_str}/{rel}")
             return rel
         except ValueError as exc:
+            _cleanup_target()
             if str(exc) == "asset_too_large":
                 logger.info(
                     f"[QQ2TG][Archive] 附件超过上限({self.asset_max_bytes // (1024 * 1024)}MB): {preferred_name}"
@@ -119,11 +131,7 @@ class MarkdownArchive:
             return None
         except Exception as exc:
             logger.warning(f"[QQ2TG][Archive] 下载附件失败: {exc}")
-            try:
-                if os.path.exists(target_path):
-                    os.remove(target_path)
-            except Exception:
-                pass
+            _cleanup_target()
             return None
 
     @staticmethod
@@ -135,6 +143,8 @@ class MarkdownArchive:
             base = os.path.basename(parsed.path)
             if base:
                 return base
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                f"[QQ2TG][Archive] guess_name_from_url 失败: url={url}, error={exc}"
+            )
         return fallback
